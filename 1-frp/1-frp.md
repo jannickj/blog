@@ -165,6 +165,7 @@ Last =  Now - Now % Interval
 
 With our newfound ability to predict occurance of events we can create an event generator.
 
+Algorithm ``every`` last event generator
 ```csharp
 static IEnumerator<Time> every(long now, long interval) {
     var last = now - now % interval;
