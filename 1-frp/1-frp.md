@@ -42,7 +42,7 @@ This will give us the following event timelines
 | Click | | | | | | | **C** | | | | |  |
 
 
-If we see each timeline as a list of points `(Time, Event)`, this gives us a time series for when a significant event occurs inside the game. Because time is monotonically increasing (never decrease), we can lazily merge the series at a very low cost O(1) for each  event.
+If we see each timeline as a list of points `(Time, Event)`, this gives us a time series for when a significant event occurs inside the game. Because time is **monotonically increasing** (never decrease), we can lazily merge the series at a very low cost O(1) for each  event.
 
 `Merge` algorithm (In C#)
 ```csharp
@@ -121,6 +121,7 @@ With this we have an event playback system, however there are still some things 
 * Generating re-occuring events
 * Real time systems
 * How to deal with user input
+* Historic playback
 
 ## Re-occuring events
 
@@ -132,7 +133,7 @@ In Frp it is important to distingush between **Predictable events** and **Unpred
 
 **Question:** If you have an event that occurs every hour, and the time is currently *15:13*, how many minutes is it since the last event occured? **13 minutes?**
 
-**Unfortunately** that is wrong, as we never specified when the events began we have nothing to base our predictions on.
+**Unfortunately** that is wrong, as we never specified a point of origin we have nothing to base our predictions on, since we don't know when the first of events started occuring.
 
 However lets for the purpose assume it started at *10:30* then we know that the last event must have occured at *14:30* and predicting the time since it occured is **trivial**, and can be written with the following formula.
 
@@ -199,7 +200,7 @@ An import thing to notice is that the `every` produces a lazy sequence meaning `
 
 In the examples shown so far time has been a static constant that was set from the start. However for real time systems this won't do, instead we view time as a window and we only update our state based on events inside that window. *Confused*? Don't worry all will become clear soon.
 
-Remember the function `updateState` we defined earlier?
+Remember the function `updateState` we defined earlier? Lets use it on events from time **0** to time **1000**
 
 ```csharp
 var gameState = new GameState();
@@ -214,7 +215,7 @@ updateState(gameState, merged);
 
 This piece of code will give us the state after 1000 ms of events.
 
-Let say `421 ms` passes and `now = 1421`, how would we go about updating the `gameState`? If we update our state with all events from 1000 to 0 again then our state would have been played with the same events mutiple times. As such we must cut the events to only be the window of events between now and last window.
+Let say `421 ms` passes and `now = 1421`, how would we go about updating the `gameState`? If we update our state with all events from **1000** to **0** again then our state would have been played with the same events mutiple times. As such we must cut the events to only be the window of events between now and last window.
 
 `Window = ]Last, Now]`
 Meaning that Now is included and events exactly at Last is excluded, as those were included in the prior window.
@@ -239,7 +240,7 @@ updateState(gameState, merged);
 
 As we can see in this window `gameState` will only be updated with two position updates, the meteors are not spawned because that update occurs outside the window.
 
-Now lets says another 90 ms. How will the next window look?
+Now lets says another 90 ms passes. How will the next window look?
 
 **Window** \]1421, 1511\]
 
@@ -271,11 +272,11 @@ while(True) {
     draw(gameState);
 }
 ```
+With this we are able to update our state for each time window.
 
 **Question** Lets say that the `draw` function completely lags out when `now = 482`, and the next `now = 1232`, what will happen to `gameState` at `1232`? will it miss all the events that occured between *1231* and *482* **!?!?**
 
-**Answer** No the window size is expanding and contracting depending on how fast the computer is able to run the update loop. This because Frp is **insentive** to the resolution at which it does **event sampling**. In prior works I've refered to this as **Sampling Resolution Insensitivity**.
-And with we see why Frp is:
+**Answer** No the window size is expanding and contracting depending on how fast the computer is. This because Frp is **insentive** to the resolution at which it does **event sampling**. In prior works I've refered to this as **Sampling Resolution Insensitivity**. This is how and why Frp fulfilles its first promise:
 
 * Self correcting in nature, preventing state coming out of sync  *(better stability)*
 
@@ -308,7 +309,7 @@ while(True) {
 }
 ```
 
-As you might notice the time the user input occur is just what ever the current time window is at, you can spend time and energy on making it be the time at which the user actually clicked space. However the update windows are in general very small, such that the actual game appears smooth, given this whether we say the user clicked **0.1-0.2ms** faster has no actual impact.
+As you might notice the time the user input occur is just what the current time window is at, you can spend time and energy on making it be the time at which the user actually clicked a buttonm. However the update windows are in general very small, such that the actual game appears smooth, given this whether we say the user clicked **0.1-0.2ms** faster has no actual impact.
 
 Using this solution we are able to completely avoid any state update inside an injected function. And instead we have inverted the control back to us of when and how user input changes our state thus fulfilling the second promise of Frp:
 
@@ -337,14 +338,12 @@ while(True) {
 }
 ```
 
-With this event history we can save it on our computer and play it back at a later time. To see what actually happend. An important thing to note that if you planning to playback the events, you should be certain that your `updateState` function is **deterministic** otherwise the is no guarantee you will get the same result.
+With this event history we can save it on our computer and play it back at a later time. To see what actually happend. An important thing to note is if you're planning to playback the events, you should be certain that your `updateState` function is **deterministic** otherwise there is no guarantee you will get the same result.
 
-With this we conclude the last and final promise of Frp:
+With this we conclude the third and final promise of Frp:
 
 * **Histroic playback:** (Requres: **Deterministic transitions**)  Any replay system must be Frp  *(better overview)*
 
-
-## Advanced: Monadic time series
 
 
 
