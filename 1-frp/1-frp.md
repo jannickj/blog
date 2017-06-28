@@ -189,9 +189,9 @@ In *FRP* it is important to distingush between **Predictable events** and **Unpr
 
 **Unpredicatable events** are outside the control of the internal system and as such can occur at any time. The **Click spacebar** is an example of this type of events as it is entirely up to the player when to press spacebar.
 
-**Predictable events**  occur at a regular interval. The **meteors spawn** and the **Postion update** are examples of predictable events. These are often re-occuring, and these we want to generate mathetically.
+**Predictable events**  occur at a regular interval. The **meteors spawn** and the **Postion update** are examples of predictable events. These are often re-occuring, and these we want to generate them mathetically.
 
-**Meaning** we want to be able to generate arbitrary **Event sequences**, only using knowledge available to us. i.e.
+**Meaning** we want to be able to generate arbitrary **Event sequences**, using only knowledge available to us. i.e.
 
 ```csharp
 var Now = 1073;
@@ -204,7 +204,7 @@ Should produce the following **Event sequence**
 |----------|---------|--------|--------|--------|--------|
 | ()       | ()      | ()     | ()     | ()     | ()     |
 
-**Question:** If you have an event that occurs 200 ms, and the time is currently *1073*, how many milliseconds is it since the last event occured? **73 ms?**
+**Question:** If you have an event that occurs at an interval of 200 ms, and the time is currently *1073*, how many milliseconds is it since the last event occured? **73 ms?**
 
 **Not quite!** as we never specified a **point of origin** we have nothing to base our predictions on, since we don't know when the first of events started occuring.
 
@@ -232,7 +232,7 @@ var First = 0;
 var events = every(Now, Interval, First)
 ```
 
-**HOWEVER** No one likes complicated systems and in reality saying that all re-occuring events started occuring at a predetermined **point of origin**, is probably not that much of a strech.
+**HOWEVER!** No one likes complicated systems and in reality saying that all re-occuring events started occuring at a predetermined **point of origin**, is probably not that much of a strech.
 
 As such if we define **point of origin** to be **_0_**. This has an added bonus of simplifying our **Last event** formula.
 
@@ -260,7 +260,7 @@ Running it with `every(1073, 200)` gives us
 |----------|---------|--------|--------|--------|--------|
 | ()       | ()      | ()     | ()     | ()     | ()     |
 
-**Maybe..** you prefer to define events as a frequency, **easy** just transform our a frequency to an interval and call every.
+**Maybe..** you prefer to define events as a frequency, **easy** just transform the frequency to an interval and call every.
 
 ```csharp
 static IEnumerator<Time> ticks(long now, double hz) {
@@ -269,14 +269,7 @@ static IEnumerator<Time> ticks(long now, double hz) {
 ```
 *For instance. CS:GO is updated at a tick rate of 120 ticks per second*
 
-Checking `ticks(1073, 120)` gives us
-
-| Timeline | 1072 ms | 1064 ms | 1056 ms | ... |
-|----------|---------|---------|---------|-----|
-| ()       | ()      | ()      | ()      | ... |
-
-
-To actually use the events we just map our generated events to the kind of event we want.
+With this **Event generator** we just map our generated events to the kind of event we want.
 ```csharp
 Position = every(1073, 200).select(t => (t, Events.Position))
 Meteor = every(1073, 500).select(t => (t, Events.Meteor))
@@ -287,13 +280,13 @@ Meteor = every(1073, 500).select(t => (t, Events.Meteor))
 | Postion  | **P**   | **P**  | **P**  |        | **P**  | **P**  |
 | Meteor   | **M**   |        |        | **M**  |        |        |
 
-**Tadaaaa!!.. magic**, we now have the same identical event time series that we had before.
+**Tadaaaa!!.. magic**, we now have the same identical event time series that we used in the game example.
 
-**Notice**  `every` produces a lazy sequence meaning `every(time,interval).take(1)` runs at `O(1)` time and not `O(time/interval)`. This becomes really important when **Time** is set to current **Unix** timestamp.
+**Notice**  `every` produces a lazy sequence meaning `every(time,interval).take(1)` runs at `O(1)` time and not `O(time/interval)`. This becomes really important when **Time** is set to current **Unix** timestamp, meaning that every would contain billions of events with a small enough time interval.
 
 ## **Live** playback
 
-In the examples shown so far time has been a static constant that was set from the start. However for **Live** systems this won't do, instead we view time as a window and we only update our state based on events inside that window. *Confused*? Don't worry all will become clear soon.
+In the examples shown so far **Time** has been a static constant that was set from the start. However for **Live** systems this won't do, instead we view time as a window and we only update our state based on events inside that window. *Confused*? Don't worry all will become clear soon.
 
 Remember the function `updateState` we defined earlier? Lets use it on events from time **0** to time **1073**
 
@@ -310,7 +303,7 @@ Remember the function `updateState` we defined earlier? Lets use it on events fr
 
 It's is exactly what I have already shown. *However* time to make it interesting..
 
-Let that another `411 ms` passes and `now = 1484`, how would we go about updating the `gameState`? Lets try a naïve approach..
+Let say that another `411 ms` passes and `now = 1484`, how would we go about updating the `gameState`? Lets try a naïve approach..
 ```csharp
 /** first update **/
 var Position1 = every(1073, 200).select(t => (t, Events.Position))
