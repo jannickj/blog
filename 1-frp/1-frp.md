@@ -1,60 +1,104 @@
 # Understanding Functional Reactive Programming
 
-Contrary to popular belief Frp does not require a functional language nor does the code have to functional.
+Contrary to popular belief *FRP* does not require a functional language nor does the code have to functional.
  As such all code examples will be in C# that there can be no doubt. The only requirement is that events and the time they occur are **immutable**. In most systems this is the case as events are simply just messages, small fragments of state.
 
-The issues most pressing that Frp solves are as follows:
+ Also I am not here to show you how to use *Elm*, *Reactive* or some other framework, I am going to show how you can make them **yourself**!
 
-* **Desync:** Self correcting in nature, preventing state coming out of sync  *(better stability)*
-* **Avoid Hooks:** Inversion of control, avoids the need for injected state changing functions *(better reasoning)*
-* **Histroic playback:** (Requres: **Deterministic transitions**)  Any replay system must be Frp  *(better overview)*
+## Benefits of *FRP*
 
-## So what is Frp?
+* **Better stability:** Will allow you to recover from lags spikes, without changing the outcome.
+* **Better reasoning:** Ever had too many *onPress* functions to follow what is happening? Ever tried to make your code run in parallel?, In *FRP* events and event-handling are seperated.  Making it much easier to understand and optimize what happens.
+* **Histroic playback** (Requires: **Deterministic transitions**): Allows you to replay your program, maybe you want to see your mistakes in a game. Or maybe you are trying to figure out how a customer ended up in a specific state.
 
-The key characteristic of any Frp system is that **Events** are associated with a **Timestamp**, and that these are **immutable** meaning their **state** is never changes.
+## So what is *FRP*?
 
-A lot of systems we use are Frp in nature and it is what allows them to be powerful.
+In *FRP* we have 2 import concepts.
 
-The most obvious example is **banking**, in the banking world every transaction is associated with a timestamp and a the amount to move from one account to another.
+1. **Time**
+2. **Event sequence**
 
-A less obvious example is `git` a tool most developers use everyday. In `git` every `commit` is associated with the changes to the code along with a timestamp, `git` guarantees the purity of state by using a checksum hash for the commit.
+**Time** is just a scalar in the examples I use **Time** in milliseconds, but that is **not** a requirement.
 
-With that said lets get into the nitty gritty details of Frp.
+**Event sequence** is a potentially infinite sequence of **Time** + **Event**. Going from the most recent **Event** to the oldest **Event**.
+* An **Event** sequence not descendingly sorted by **time** is **invalid**.
+Thus any function generating an event sequence must at all time maintain this **invariant**.
+
 
 ## The basics
 
 Imagine you are making a space shooter, in this game you have the following mechanics.
 
 * Every 200 ms update the postion of all objects
-* Every 0.5 sec spawn a meteor in a random direction
+* Every 0.5 sec spawn a meteor(s) in random directions
 * When the user clicks spacebar we fire a missile
 
 ![3 meteors and a space ship (in space)](./space.png)
 
-Now lets say that the user fires a missile 530 ms into the game.
+Lets assume that we are currently *1076 ms* into the game. And lets say that the user fired a missile *530 ms* into the game.
 
 This will give us the following event timelines
 
-| Timeline |0 ms| 100 ms| 200 ms| 300 ms | 400 ms | 500 ms | 530 ms | 600 ms | 700 ms | 800 ms | 900 ms | 1 sec |
-|-------|----|-------|-------|--------|--------|-|--------|--------|--------|--------|-------|-|
-| Postion | | | **P**| | **P**| ||  **P** | | **P** | | **P** | |
-| Meteor | |  || |  | **M** || | | |    |  **M** |
-| Click | | | | | | | **C** | | | | |  |
+| Timeline | 1000 ms | 800 ms | 600 ms | 530 ms | 500 ms | 400 ms | 200 ms |
+|----------|---------|--------|--------|--------|--------|--------|--------|
+| Postion  | **P**   | **P**  | **P**  |        |        | **P**  | **P**  |
+| Meteor   | **M**   |        |        |        | **M**  |        |        |
+| Click    |         |        |        | **C**  |        |        |        |
 
+Our most recent event(s) are *Meteors spawning* and *Position update* at timestep *1000 ms*, our oldest event is a **single** *Position* update at timestep *200 ms*.
 
-If we see each timeline as a list of points `(Time, Event)`, this gives us a time series for when a significant event occurs inside the game. Because time is **monotonically increasing** (never decrease), we can lazily merge the series at a very low cost O(1) for each  event.
+*Wait..* if each step is `(Time, Event)`, doesn't that make it a time series? **Exactly** in *FRP* each type of event is a time seriest over its occurances.
+
+Well given that we have the events let us update our game! Should be simple right?
+
+Just apply the correct function for each type of event.
+
+```csharp
+static void UpdateState(GameState gameState,
+                        IEnumerator<(Time,GameEvents)> events) {
+    for (time, evt) in events {
+        if evt == GameEvents.Positon {
+            gameState.UpdatePositions();
+        } else if evt == GameEvents.Meteor {
+            gameState.SpawnMeteors();
+        } else if evt == GameEvents.Click {
+            gameState.ship.FireMissile();
+        }
+}
+```
+
+And using it is just as easy...
+
+```csharp
+static void ApplyEvents(GameState gameState,
+                        IEnumerator<(Time,GameEvents)> Position,
+                        IEnumerator<(Time,GameEvents)> Meteor,
+                        IEnumerator<(Time,GameEvents)> Click) {
+    updateState(game, Position);
+    updateState(game, Meteor);
+    updateState(game, Click);
+}
+```
+
+Hmm.. something feels **wrong**, we are applying **all** the position update events to our game, then applying **all** our meteor events.. etc. That **can't** be right!
+
+What we actually need to do is update our game with **all** events at once. To do this it seems what we need is some way of **merging** the events.
+
+Here we are in luck because **Time** does have one important property. Which is that **Time** is **monotonically increasing** (never decrease). This means is we can just pop from the sequences and only choose the most recent event.
+Furthermore we can do this **lazily** and at a  **low cost** O(1) for each event.
 
 `Merge` algorithm (In C#)
 ```csharp
 
-static IEnumerator<(Time,TEvt)> merge<TEvt>(
+static IEnumerator<(Time,TEvt)> Merge<TEvt>(
     this IEnumerator<(Time,TEvt)> A,
          IEnumerator<(Time,TEvt)> B) {
 
+    // In C# you start by moving an IEnumerator (Because it is lazy!)
     var hasA = A.MoveNext();
     var hasB = B.MoveNext();
 
-    // Go through A and B simultaniously always yielding the yongest event
+    // Go through A and B simultaniously always yielding the most recent
     while(hasA && hasB) {
         var (time_a, a) = A.Current;
         var (time_b, b) = B.Current;
@@ -81,7 +125,9 @@ static IEnumerator<(Time,TEvt)> merge<TEvt>(
 }
 ```
 
-Given that each merged series produce a new series we can apply merge multiple times.
+**Question:** is the `Merge` function maintaining the **invariant** of being sorted descendingly by **Time**? Take a moment to figure out why this is the case...
+
+With this `merge` function we just merge our events.
 
 ```csharp
 var merged = PositionEvents
@@ -89,81 +135,113 @@ var merged = PositionEvents
                 .merge(MeteorEvents)
 ```
 
-Merging produces the following timeline
+| Timeline | 1000 ms | 1000 ms | 800 ms | 600   | 530 ms | 500 ms | 400 ms | 200 ms |
+|----------|---------|---------|--------|-------|--------|--------|--------|--------|
+| Merged   | **P**   | **M**   | **P**  | **P** | **C**  | **M**  | **P**  | **P**  |
 
-| Timeline | 200 ms|  400 ms | 500 ms | 530 ms | 600 ms | 800 ms |  1 sec | 1 sec |
-|-|-|-|--------|--------|-------|-|-|-|
-| Merged | **P**| **P** | **M** | **C** |  **P**  | **P**  | **M** | **P** | |
+ **Notice:** The *Position update* at timestep *1000 ms* occurs after the *Meteor spawning*, this is because our `merge` algorithm is left biased.
 
- **Notice:** In our timeline Position update at timestep 1sec occurs after the spawning of meteors, this is because our `merge` algorithm is left biased.
-
-With this merged event series. For each event we want to perform a state transtion of our game. Given that we have a merged sequence of events that is now easy.
-
-Example update state function
-
+Armed with this knowledge we are finally ready to make our updated `ApplyEvent` function
 ```csharp
-static void UpdateState(GameState gameState,
-                        IEnumerator<(Time,GameEvents)> merged) {
-    var events = merged.reverse();
-    for (time, evt) in events {
-        if evt == GameEvents.Positon {
-            gameState.UpdatePositions();
-        } else if evt == GameEvents.Meteor {
-            gameState.SpawnMeteors();
-        } else if evt == GameEvents.Click {
-            gameState.ship.FireMissile();
-        }
+static void BetterApplyEvents(GameState gameState,
+                        IEnumerator<(Time,GameEvents)> Position,
+                        IEnumerator<(Time,GameEvents)> Meteor,
+                        IEnumerator<(Time,GameEvents)> Click) {
+
+    var merged = PositionEvents
+                    .Merge(ClickEvents)
+                    .Merge(MeteorEvents);
+
+    updateState(game, merged);
 }
 ```
-Notice that we play events in reversed order, this is an important and easy to miss. However we want to playback from oldest to newest event (obviously).
 
-With this we have an event playback system, however there are still some things that are left unclear.
+**Wait...** why is there something that still doesn't feel right? Oh no.. because events are sorted descendingly i.e. most recent to oldest. Then that means we are updating our state with the most recent events first, but events should always be applied in chronological order.
+
+**Solution** we reverse events before applying them!
+
+```csharp
+static void BestApplyEvents(GameState gameState,
+                        IEnumerator<(Time,GameEvents)> Position,
+                        IEnumerator<(Time,GameEvents)> Meteor,
+                        IEnumerator<(Time,GameEvents)> Click) {
+
+    var merged = PositionEvents
+                    .Merge(ClickEvents)
+                    .Merge(MeteorEvents)
+                    .Reserve(); // <--- Reverse events!
+
+    updateState(game, merged);
+}
+```
+
+With this we have an **Event playback** system, however there are still some things that are left unclear.
 * Generating re-occuring events
-* Real time systems
+* Live systems
 * How to deal with user input
 * Historic playback
 
+So if you are ready for more fun with events, then lets continue!
+
 ## Re-occuring events
 
-In Frp it is important to distingush between **Predictable events** and **Unpredicatable events**.
+In *FRP* it is important to distingush between **Predictable events** and **Unpredicatable events**.
 
 **Unpredicatable events** are outside the control of the internal system and as such can occur at any time. The **Click spacebar** is an example of this type of events as it is entirely up to the player when to press spacebar.
 
-**Predictable events**  occur at a regular interval. The **meteors spawn** and the **Postion update** are examples of predictable events. These are often re-occuring, and will be our focus.
+**Predictable events**  occur at a regular interval. The **meteors spawn** and the **Postion update** are examples of predictable events. These are often re-occuring, and these we want to generate mathetically.
 
-**Question:** If you have an event that occurs every hour, and the time is currently *15:13*, how many minutes is it since the last event occured? **13 minutes?**
+**Meaning** we want to be able to generate arbitrary **Event sequences**, only using knowledge available to us. i.e.
 
-**Unfortunately** that is wrong, as we never specified a point of origin we have nothing to base our predictions on, since we don't know when the first of events started occuring.
-
-However lets for the purpose assume it started at *10:30* then we know that the last event must have occured at *14:30* and predicting the time since it occured is **trivial**, and can be written with the following formula.
-
+```csharp
+var Now = 1073;
+var Interval = 200;
+var events = every(Now, Interval)
 ```
-Last = Now - (Now + First) % Interval
+Should produce the following **Event sequence**
+
+| Timeline | 1000 ms | 800 ms | 600 ms | 400 ms | 200 ms |
+|----------|---------|--------|--------|--------|--------|
+| ()       | ()      | ()     | ()     | ()     | ()     |
+
+**Question:** If you have an event that occurs 200 ms, and the time is currently *1073*, how many milliseconds is it since the last event occured? **73 ms?**
+
+**Not quite!** as we never specified a **point of origin** we have nothing to base our predictions on, since we don't know when the first of events started occuring.
+
+To show why this is a problem let's assume that our first event starts at *630 ms* then we know that the last event must have occured at *1030* as 630 + 2*200 = 1030 and predicting the time since it occured is **trivial**, and can be written with the following formula.
+
+Formula: **Last event**
+```
+Last = Now - (Now - First) % Interval
 ```
 
 So to answer our question
 
 ```
-- Now       = 15:13 = 913 min
-- First     = 10:30 = 630 min
-- Interval          = 60 min
-
-Last = 913 - (913 + 630) % 60 = 870
+- Now       = 1073 ms
+- First     = 630 ms
+- Interval  = 200 ms
 ```
-870 min / 60 = 14.5 = 14:30 **(Correct)**
+Last = 1073 - (1073 - 630) % 200 = 1030 **(Correct)**
 
-In most Frp systems, especially real time ones, you are able to control when your events began. As such if we define an **origin time** a time in which all events started occuring.
-
-This **origin time** should be **_Zero_** for simplicity, allowing us to write the formula as.
-
-
-```
-Last =  Now - Now % Interval
+*Thus* our function every should take three arguments
+```csharp
+var Now = 1073;
+var Interval = 200;
+var First = 0;
+var events = every(Now, Interval, First)
 ```
 
-### Generating events
+**HOWEVER** No one likes complicated systems and in reality saying that all re-occuring events started occuring at a predetermined **point of origin**, is probably not that much of a strech.
 
-With our newfound ability to predict occurance of events we can create an event generator.
+As such if we define **point of origin** to be **_0_**. This has an added bonus of simplifying our **Last event** formula.
+
+```
+Last =  Now - (Now - 0) % Interval
+     =  Now - Now % Interval
+```
+
+With this settled we should now be able to make a simple `every` algorithm that only takes two arguments.
 
 Algorithm ``every`` a lazy event generator
 ```csharp
@@ -176,88 +254,140 @@ static IEnumerator<Time> every(long now, long interval) {
 }
 ```
 
-Running it with `every(1000, 200)` gives us
+Running it with `every(1073, 200)` gives us
 
-| Timeline |0 ms| 100 ms| 200 ms| 300 ms | 400 ms | 500 ms | 600 ms | 700 ms | 800 ms | 900 ms | 1 sec |
-|-------|----|-------|-------|--------|--------|-|--------|--------|--------|--------|-------|
-| () | | | ()| | ()| |  () | | () | | () |
+| Timeline | 1000 ms | 800 ms | 600 ms | 400 ms | 200 ms |
+|----------|---------|--------|--------|--------|--------|
+| ()       | ()      | ()     | ()     | ()     | ()     |
 
-If we map our time series for our events given in the game example we get
+**Maybe..** you prefer to define events as a frequency, **easy** just transform our a frequency to an interval and call every.
+
 ```csharp
-Position = every(1000, 200).select(t => (t, Events.Position))
-Meteor = every(1000, 500).select(t => (t, Events.Meteor))
+static IEnumerator<Time> ticks(long now, double hz) {
+    every(now, (long) Math.round(1000.0 / hs))
+}
+```
+*For instance. CS:GO is updated at a tick rate of 120 ticks per second*
+
+Checking `ticks(1073, 120)` gives us
+
+| Timeline | 1072 ms | 1064 ms | 1056 ms | ... |
+|----------|---------|---------|---------|-----|
+| ()       | ()      | ()      | ()      | ... |
+
+
+To actually use the events we just map our generated events to the kind of event we want.
+```csharp
+Position = every(1073, 200).select(t => (t, Events.Position))
+Meteor = every(1073, 500).select(t => (t, Events.Meteor))
 ```
 
-| Timeline |0 ms| 100 ms| 200 ms| 300 ms | 400 ms | 500 ms | 600 ms | 700 ms | 800 ms | 900 ms | 1 sec |
-|-------|----|-------|-------|--------|--------|-|--------|--------|--------|--------| -|
-| Positon | | | **P**| | **P**| |  **P** | | **P** | | **P** |
-| Meteor | |  || |  | **M** || | |    |  **M** |
+| Timeline | 1000 ms | 800 ms | 600 ms | 500 ms | 400 ms | 200 ms |
+|----------|---------|--------|--------|--------|--------|--------|
+| Postion  | **P**   | **P**  | **P**  |        | **P**  | **P**  |
+| Meteor   | **M**   |        |        | **M**  |        |        |
 
 **Tadaaaa!!.. magic**, we now have the same identical event time series that we had before.
 
-An import thing to notice is that the `every` produces a lazy sequence meaning `every(time,interval).take(1)` runs at `O(1)` time and not `O(time/interval)`. This becomes really important when time is set to current unix timestamp.
+**Notice**  `every` produces a lazy sequence meaning `every(time,interval).take(1)` runs at `O(1)` time and not `O(time/interval)`. This becomes really important when **Time** is set to current **Unix** timestamp.
 
-## Real time playback
+## **Live** playback
 
-In the examples shown so far time has been a static constant that was set from the start. However for real time systems this won't do, instead we view time as a window and we only update our state based on events inside that window. *Confused*? Don't worry all will become clear soon.
+In the examples shown so far time has been a static constant that was set from the start. However for **Live** systems this won't do, instead we view time as a window and we only update our state based on events inside that window. *Confused*? Don't worry all will become clear soon.
 
-Remember the function `updateState` we defined earlier? Lets use it on events from time **0** to time **1000**
+Remember the function `updateState` we defined earlier? Lets use it on events from time **0** to time **1073**
 
 ```csharp
-var gameState = new GameState();
+ var Position = every(1073, 200).select(t => (t, Events.Position))
+ var Meteor = every(1073, 500).select(t => (t, Events.Meteor))
+ var merged = PositionEvents
+                    .Merge(ClickEvents)
+                    .Merge(MeteorEvents)
+                    .Reserve(); // <--- Reverse events!
 
-var now = 1000;
-var position = every(now, 200).select(t => (t, Events.Position));
-var meteor = every(now, 500).select(t => (t, Events.Meteor));
-var merged = position.merge(meteor);
-
-updateState(gameState, merged);
+    updateState(game, merged);
 ```
 
-This piece of code will give us the state after 1000 ms of events.
+It's is exactly what I have already shown. *However* time to make it interesting..
 
-Let say `421 ms` passes and `now = 1421`, how would we go about updating the `gameState`? If we update our state with all events from **1000** to **0** again then our state would have been played with the same events mutiple times. As such we must cut the events to only be the window of events between now and last window.
+Let that another `411 ms` passes and `now = 1484`, how would we go about updating the `gameState`? Lets try a naïve approach..
+```csharp
+/** first update **/
+var Position1 = every(1073, 200).select(t => (t, Events.Position))
+var Meteor1 = every(1073, 500).select(t => (t, Events.Meteor))
+var merged1 = Position1
+                .Merge(Click1)
+                .Merge(Meteor1)
+                .Reserve();
 
-`Window = ]Last, Now]`
-Meaning that Now is included and events exactly at Last is excluded, as those were included in the prior window.
+updateState(game, merged1);
+
+/** second update **/
+ var Position2 = every(1484, 200).select(t => (t, Events.Position))
+ var Meteor2 = every(1484, 500).select(t => (t, Events.Meteor))
+ var merged2 = Position2
+                    .Merge(Click2)
+                    .Merge(Meteor2)
+                    .Reserve();
+updateState(game, merged2);
+```
+
+**Question** What happens to all the events between  **1073** to **0**?.. take a moment to figure it out.
+
+**Answer** Yup that is right all events from **1073** to **0**  applied to our state twice.
+
+*Thus* we must cut the events to only be the window of events between **Now** and **Last** time we updated our state.
+
+We define this span of time between **Now** and **Last** as a **Window** where
+
+```
+Window = ]Last, Now]
+```
+Meaning that Now is included and events exactly at Last is excluded, as those were included in the prior window. To create a window of events to be applied we take all events occuring before **Last** state update.
 
 ```csharp
-var last = 1000;
+/** second update FIXED **/
+var last = 1073;
 var now = 1421;
 var position = every(now, 200).select(t => (t, Events.Position));
 var meteor = every(now, 500).select(t => (t, Events.Meteor));
-var merged = position
+var windowOfEvents =
+            position
                 .merge(meteor)
-                .takeWhile((t,_) => t > last); //All events until time of last
+                .takeWhile((t,_) => t > last)  // <-- cut events at last
+                .reverse(); // <-- reverse the events in the window
 
-updateState(gameState, merged);
+updateState(gameState, windowOfEvents);
 ```
-**Window** \]1000, 1421\]
 
-| Timeline | > 1 sec | 1200 ms | 1300 ms | 1400 ms | 1421 ms |
-|-------|---------- |-------|- |- |- |
-| Postion | | **P**|  | **P**| |
-| Meteor | |  | | | |
+**Question** How come we can just do a takeWhile won't that cause any bugs? **Hint** it has something to do with **Invariants**
 
-As we can see in this window `gameState` will only be updated with two position updates, the meteors are not spawned because that update occurs outside the window.
+**Window** \]1073, 1421\]
 
-Now lets says another 90 ms passes. How will the next window look?
+| Timeline       | 1200 ms | 1400 ms |
+|----------------|---------|---------|
+| windowOfEvents | **P**   | **P**   |
+**NB:** Remember the window has been **Reversed**
+
+As we can see in this window `gameState` will only be updated with two **Position updates**, the meteors are not spawned because that update occurs outside the window.
+
+Lets says another *90 ms* passes. How will the next window look?
 
 **Window** \]1421, 1511\]
 
-| Timeline  | > 1421 ms | 1500 ms   | 1511 ms   |
-|-------    |---------- |-------    | -         |
-| Postion   |           |           |           |
-| Meteor    |           | **M**     |           |
+| Timeline | 1500 ms |
+|----------|---------|
+| Postion  |         |
+| Meteor   | **M**   |
 
 In this window it is only the meteors that gets updated.
 
 ### Putting it all together!
 
-To make it work continuously, we run it in a while loop, and store the time of the `last` update step.
+To make it work continuously, we run it in a while loop, and store the time of the `Last` update state step. And to make it more realistic let's also say we `draw` our gameState after updating it.
 
 ```csharp
-var last = DateTime.Now.TotalMilliseconds;
+var last = DateTime.Now.TotalMilliseconds; // <-- Init is current time
 
 while(True) {
     var now = DateTime.Now.TotalMilliseconds;
@@ -275,17 +405,33 @@ while(True) {
 ```
 With this we are able to update our state for each time window.
 
-**Question** Lets say that the `draw` function completely lags out when `now = 482`, and the next `now = 1232`, what will happen to `gameState` at `1232`? will it miss all the events that occured between *1231* and *482* **!?!?**
+**Question** Lets say that a single iteration of our while loop takes *5 ms* What is the size of our window? In that case.
 
-**Answer** No the window size is expanding and contracting depending on how fast the computer is. This because Frp is **insentive** to the resolution at which it does **event sampling**. In prior works I've refered to this as **Sampling Resolution Insensitivity**. This is how and why Frp fulfilles its first promise:
+**Answer** It's *5 ms* as our window is defined by run time. (In general the window sizes will be very small)
 
-* Self correcting in nature, preventing state coming out of sync  *(better stability)*
+**Second Question** What happens if `draw` completely lags out when `now = 1484`, and the next `now = 20322`, what will happen to `gameState` at `20322`? will it miss all the events that occured between *20322* and *1484* **?** Will the player desync from the game?
+
+**Answer** No the window size is expanding and contracting depending on how fast the computer is. This because *FRP* is **insentive** to the resolution at which it does **event sampling**. In prior works I've refered to this as **Sampling Resolution Insensitivity**.
+
+This is how and why *FRP* fulfilles its first promise:
+
+* **Better stability:** Will allow you to recover from lags spikes, without changing the outcome.
+
+In general if the high precision clocks are supported by the machine you could put a sleep in after the draw. *FRP* is as shown self correcting and sleeping will just increase window size.
+
+**Third Question** If I have an event every **5 ms** and one every **10 ms**, and my average window size is **5 ms** what is the average event count. What is the time complexity of generating the events.
+
+**Answer** 1.5 events per 5 ms, this is a constant and thus `takeWhile`, `reverse`, `every` will all run at constant time O(1) (and in general very fast)
+
+**Fourth Question** What happens if the computer can't process the events fast enough for the program to follow.
+
+**Answer** *FRP* isn't magic it can't make your computer faster, it can only protect you against lag spikes, where it has an abundance of CPU power allowing it to catch up.
 
 ## User input
 
-If you've come this far, you should now be well versed in how Frp works, and it shouldn't be much of a surprise when I say that User input events are just another Event time series.
+If you've come this far, you should now be well versed in how *FRP* works, and it shouldn't be much of a surprise when I say that User input events are just another Event time series.
 
-Most legacy window framework, are completely based around injected functions, however with just a few tweaks it is fairly easy to change it to Frp design.
+Most legacy window framework, are completely based around injected functions, however with just a few tweaks it is fairly easy to change it to *FRP* design.
 ```csharp
 
 var asyncEvents = AsyncList();
@@ -297,6 +443,7 @@ while(True) {
     ...
     // Copy click events from the window frame work,
     // and clear for next window.
+    // This is quick and dirty construct just to give the idea
     var clickEvents = asyncEvents.CopyThenClear()
                         //attach all events with a time
                         .select(c => (Now, c));
@@ -310,16 +457,17 @@ while(True) {
 }
 ```
 
-As you might notice the time the user input occur is just what the current time window is at, you can spend time and energy on making it be the time at which the user actually clicked a buttonm. However the update windows are in general very small, such that the actual game appears smooth, given this whether we say the user clicked **0.1-0.2ms** faster has no actual impact.
+**Notice** we have seperated **Events** from **Event-handling**, this is core to FRP, think of it as **inversion of control** for events. And with this it seems we have fulfilled the second promise of *FRP*
 
-Using this solution we are able to completely avoid any state update inside an injected function. And instead we have inverted the control back to us of when and how user input changes our state thus fulfilling the second promise of Frp:
+* **Better reasoning:** Ever had too many *onPress* functions to follow what is happening? Ever tried to make your code run in parallel?, In *FRP* events and event-handling are seperated. Making it much easier to understand and optimize what happens.
 
-* **Avoid Hooks:** Inversion of control, avoids the need for injected state changing functions *(better reasoning)*
+**Rant incomming for any nitpickers**
+As you might notice, the time the user input occur is just what the current time window is at, you can spend time and energy on making it be the time at which the user actually clicked a button. However the update windows are in general very small, such that the actual game appears smooth, given this whether we say the user clicked **0.1-0.2ms** faster has no actual impact.
 
 
 ## Historic playback
 
-Finally we arrive at historic event playback. Whether you're making a game replay system or just want have better debugging power. In Frp historic playback is trivial.
+Finally we arrive at historic event playback. Whether you're making a game replay system or just want have better debugging power. In *FRP* historic playback is trivial.
 
 We simply add a step of saving all the events **(Yeah it's that easy!)**
 ```csharp
@@ -341,9 +489,9 @@ while(True) {
 
 With this event history we can save it on our computer and play it back at a later time. To see what actually happend. An important thing to note is if you're planning to playback the events, you should be certain that your `updateState` function is **deterministic** otherwise there is no guarantee you will get the same result.
 
-With this we conclude the third and final promise of Frp:
+With this we conclude the third and final promise of *FRP*:
 
-* **Histroic playback:** (Requres: **Deterministic transitions**)  Any replay system must be Frp  *(better overview)*
+* **Histroic playback** (Requires: **Deterministic transitions**): Allows you to replay your program, maybe you want to see your mistakes in a game. Or maybe you are trying to figure out how a customer ended up in a specific state.
 
 
 
