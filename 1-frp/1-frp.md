@@ -360,6 +360,7 @@ updateState(gameState, windowOfEvents);
 | Timeline       | 1200 ms | 1400 ms |
 |----------------|---------|---------|
 | windowOfEvents | **P**   | **P**   |
+
 **NB:** Remember the window has been **Reversed**
 
 As we can see in this window `gameState` will only be updated with two **Position updates**, the meteors are not spawned because that update occurs outside the window.
