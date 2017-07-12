@@ -1,6 +1,6 @@
 # Understanding Functional Reactive Programming
 
-Contrary to popular belief *FRP* does not require a functional language nor does the code have to functional.
+Contrary to popular belief *FRP* does not require a functional language nor does the code have to be functional.
  As such all code examples will be in C# that there can be no doubt. The only requirement is that events and the time they occur are **immutable**. In most systems this is the case as events are simply just messages, small fragments of state.
 
  Also I am not here to show you how to use *Elm*, *Reactive* or some other framework, I am going to show how you can make them **yourself**!
