@@ -172,7 +172,7 @@ static void BestApplyEvents(GameState gameState,
     var merged = PositionEvents
                     .Merge(ClickEvents)
                     .Merge(MeteorEvents)
-                    .Reversed(); // <--- Reverse events!
+                    .Reverse(); // <--- Reverse events!
 
     updateState(game, merged);
 }
@@ -299,7 +299,7 @@ Remember the function `updateState` we defined earlier? Lets use it on events fr
  var merged = PositionEvents
                     .Merge(ClickEvents)
                     .Merge(MeteorEvents)
-                    .Reversed(); // <--- Reverse events!
+                    .Reverse(); // <--- Reverse events!
 
     updateState(game, merged);
 ```
@@ -314,7 +314,7 @@ var Meteor1 = every(1073, 500).select(t => (t, Events.Meteor))
 var merged1 = Position1
                 .Merge(Click1)
                 .Merge(Meteor1)
-                .Reversed();
+                .Reverse();
 
 updateState(game, merged1);
 
@@ -324,7 +324,7 @@ updateState(game, merged1);
  var merged2 = Position2
                     .Merge(Click2)
                     .Merge(Meteor2)
-                    .Reversed();
+                    .Reverse();
 updateState(game, merged2);
 ```
 
@@ -353,7 +353,7 @@ var windowOfEvents =
             position
                 .merge(meteor)
                 .takeWhile((t,_) => t > last)  // <-- cut events at last
-                .reverse(); // <-- reverse the events in the window
+                .Reverse(); // <-- reverse the events in the window
 
 updateState(gameState, windowOfEvents);
 ```
@@ -396,7 +396,8 @@ while(True) {
     var meteor = every(now, 500).select(t => (t, Events.Meteor));
     var merged = position
                     .merge(meteor)
-                    .takeWhile((t,_) => t > last);
+                    .takeWhile((t,_) => t > last)
+                    .reverse();
 
     updateState(gameState, merged);
     last = now;
@@ -450,7 +451,7 @@ while(True) {
     var merged = position
                     .merge(meteor)
                     .merge(clickEvents)
-                    .takeWhile((t,_) => t > last);
+                    .takeWhile((t,_) => t > last)
     ...
 }
 ```
@@ -478,9 +479,10 @@ while(True) {
     var meteor = every(now, 500).select(t => (t, Events.Meteor));
     var merged = position
                     .merge(meteor)
-                    .takeWhile((t,_) => t > last);
+                    .takeWhile((t,_) => t > last)
+                    .reverse();
     // Store the events
-    history.AddMany(merged.reverse());
+    history.AddMany(merged);
     ..
 }
 ```
