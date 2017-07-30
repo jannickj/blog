@@ -21,8 +21,9 @@ In *FRP* we have 2 import concepts.
 **Time** is just a scalar in the examples I use **Time** in milliseconds, but that is **not** a requirement.
 
 **Event sequence** is a potentially infinite sequence of **Time** + **Event**. Going from the most recent **Event** to the oldest **Event**.
-* An **Event** sequence not descendingly sorted by **time** is **invalid**.
-Thus any function generating an event sequence must at all time maintain this **invariant**.
+
+* An FRP **Event** sequence is always descendingly sorted by **time** otherwise it is **invalid**.
+Thus any function generating an event sequence must at all time maintain this **invariant**. More on this later.
 
 
 ## The basics
@@ -84,10 +85,12 @@ Hmm.. something feels **wrong**, we are applying **all** the position update eve
 
 What we actually need to do is update our game with **all** events at once. To do this it seems what we need is some way of **merging** the events.
 
-Here we are in luck because **Time** does have one important property. Which is that **Time** is **monotonically increasing** (never decrease). This means is we can just pop from the sequences and only choose the most recent event.
-Furthermore we can do this **lazily** and at a  **low cost** O(1) for each event.
+Here we are in luck because **Time** does have one important property. Which is that **Time** is **monotonically increasing** (Ascending order). Which will mean that events in our series will be in monotonically descreasing order (Descending order).
 
-`Merge` algorithm (In C#)
+ This means is we can just pop from the sequences and only choose the most recent event.
+Furthermore we can do this **lazily** and at a  **low time complexity** of O(1) for each event.
+
+`Merge` algorithm, combine two event series into one
 ```csharp
 
 static IEnumerator<(Time,TEvt)> Merge<TEvt>(
@@ -169,7 +172,7 @@ static void BestApplyEvents(GameState gameState,
     var merged = PositionEvents
                     .Merge(ClickEvents)
                     .Merge(MeteorEvents)
-                    .Reserve(); // <--- Reverse events!
+                    .Reversed(); // <--- Reverse events!
 
     updateState(game, merged);
 }
@@ -243,7 +246,7 @@ Last =  Now - (Now - 0) % Interval
 
 With this settled we should now be able to make a simple `every` algorithm that only takes two arguments.
 
-Algorithm ``every`` a lazy event generator
+Algorithm ``every``, a lazy event generator
 ```csharp
 static IEnumerator<Time> every(long now, long interval) {
     var last = now - now % interval;
@@ -267,7 +270,7 @@ static IEnumerator<Time> ticks(long now, double hz) {
     every(now, (long) Math.round(1000.0 / hs))
 }
 ```
-*For instance. CS:GO is updated at a tick rate of 120 ticks per second*
+*For instance. Competative CS:GO is updated at a tick rate of 120 ticks per second*
 
 With this **Event generator** we just map our generated events to the kind of event we want.
 ```csharp
@@ -296,7 +299,7 @@ Remember the function `updateState` we defined earlier? Lets use it on events fr
  var merged = PositionEvents
                     .Merge(ClickEvents)
                     .Merge(MeteorEvents)
-                    .Reserve(); // <--- Reverse events!
+                    .Reversed(); // <--- Reverse events!
 
     updateState(game, merged);
 ```
@@ -311,7 +314,7 @@ var Meteor1 = every(1073, 500).select(t => (t, Events.Meteor))
 var merged1 = Position1
                 .Merge(Click1)
                 .Merge(Meteor1)
-                .Reserve();
+                .Reversed();
 
 updateState(game, merged1);
 
@@ -321,13 +324,13 @@ updateState(game, merged1);
  var merged2 = Position2
                     .Merge(Click2)
                     .Merge(Meteor2)
-                    .Reserve();
+                    .Reversed();
 updateState(game, merged2);
 ```
 
 **Question** What happens to all the events between  **1073** to **0**?.. take a moment to figure it out.
 
-**Answer** Yup that is right all events from **1073** to **0**  applied to our state twice.
+**Answer** That is right all events from **1073** to **0**  applied to our state twice.
 
 *Thus* we must cut the events to only be the window of events between **Now** and **Last** time we updated our state.
 
@@ -336,7 +339,9 @@ We define this span of time between **Now** and **Last** as a **Window** where
 ```
 Window = ]Last, Now]
 ```
-Meaning that Now is included and events exactly at Last is excluded, as those were included in the prior window. To create a window of events to be applied we take all events occuring before **Last** state update.
+Meaning events that occured exactly at the time **Now** is included and events exactly at the time **Last** is excluded, as those were included in the prior window. 
+
+As such to create a window of events to be applied we take all events occuring before **Last** state update.
 
 ```csharp
 /** second update FIXED **/
@@ -353,7 +358,9 @@ var windowOfEvents =
 updateState(gameState, windowOfEvents);
 ```
 
-**Question** How come we can just do a takeWhile won't that cause any bugs? **Hint** it has something to do with **Invariants**
+**Question** How come we can use `takeWhile` in order to get our window of events? What guarantee do we have that we won't miss out on events that have occured after the time **Last**.
+
+**Answer** Our event series has the property of Monotonically decreasing time,
 
 **Window** \]1073, 1421\]
 
@@ -428,17 +435,14 @@ If you've come this far, you should now be well versed in how *FRP* works, and i
 Most legacy window framework, are completely based around injected functions, however with just a few tweaks it is fairly easy to change it to *FRP* design.
 ```csharp
 
-var asyncEvents = AsyncList();
+var asyncEvents = AsyncQueue();
 
-window.onClickSpaceBar(_ => asyncEvents.add(Click.spacebar));
+window.onClickSpaceBar(_ => asyncEvents.Enqueue(Click.spacebar));
 ...
 
 while(True) {
     ...
-    // Copy click events from the window frame work,
-    // and clear for next window.
-    // This is quick and dirty construct just to give the idea
-    var clickEvents = asyncEvents.CopyThenClear()
+    var clickEvents = asyncEvents.DequeueAll()
                         //attach all events with a time
                         .select(c => (Now, c));
 
