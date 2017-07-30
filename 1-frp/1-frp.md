@@ -23,7 +23,7 @@ In *FRP* we have 2 import concepts.
 **Event sequence** is a potentially infinite sequence of **Time** + **Event**. Going from the most recent **Event** to the oldest **Event**.
 
 * An FRP **Event** sequence is always descendingly sorted by **time** otherwise it is **invalid**.
-Thus any function generating an event sequence must at all time maintain this **invariant**. More on this later.
+Thus any function generating an event sequence must maintain this **invariant**. More on this later.
 
 
 ## The basics
