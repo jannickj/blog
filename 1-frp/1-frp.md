@@ -494,8 +494,9 @@ With this we conclude the third and final promise of *FRP*:
 * **Histroic playback** (Requires: **Deterministic transitions**): Allows you to replay your program, maybe you want to see your mistakes in a game. Or maybe you are trying to figure out how a customer ended up in a specific state.
 
 
+## Final notes
 
-
+This concludes the basic introduction to functional reactive based event handling, there are other subjects we haven't looked into, such as **automatic caching**, **multi threaded event handling** and **monadic events**. However I think with this you should be more than prepared to tackle some of these yourself. I might do one on **monadic events** as it's actually quite interesting.
 
 
 
