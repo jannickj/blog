@@ -1,0 +1,435 @@
+<html>
+<head>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+</head>
+
+<body>
+    <div id="sad"></div>
+    <form>
+        <input></input>
+    </form>
+    <div id="dym"></div>
+</body>
+</html>
+
+<script>
+
+function* every_(now, interval) {
+    var last = now - now % interval;
+    while(last > 0) {
+        yield [last, last];
+        last = last - interval;
+    }
+}
+
+function every(interval) {
+    return now => every_(now, interval);
+}
+
+function* merge_two_(A, B) {
+    var nextA = A.next();
+    var nextB = B.next();
+    while(!nextA.done && !nextB.done) {
+        var [time_a, a] = nextA.value;
+        var [time_b, a] = nextB.value;
+        if (time_a >= time_b) {
+            yield nextA.value;
+            nextA = A.next();
+        } else {
+            yield nextB.value;
+            nextB = B.next();
+        }
+    }
+    if (!nextA.done) {
+        do {
+            yield nextA.value;
+            nextA = A.next();
+        } while(!nextA.done);
+    } else if (!nextB.done) {
+        do {
+            yield nextB.value;
+            nextB = B.next();
+        } while(!nextB.done);
+    }
+
+}
+
+
+function merge_two(A, B) {
+    return now => merge_two_(A(now), B(now));
+}
+
+
+function* takeGenerator_(gen, n) {
+    let i = 0;
+    for (let x of gen) {
+        yield x;
+        if (++i === n) break;
+    }
+}
+
+function takeGenerator(gen, n) {
+    return now => takeGenerator_(gen(now), n);
+}
+
+function* delayGenerator_(gen, n) {
+    for (let [t, e] of gen) {
+        yield [t + n, e];
+    }
+}
+
+function delayGenerator(gen, n) {
+    return now => delayGenerator_(gen(now), n);
+}
+
+function* mapGenerator_(gen, f) {
+    for (let x of gen) {
+        yield f(x);
+    }
+}
+
+function mapGenerator(gen, n) {
+    return now => mapGenerator_(gen(now), n);
+}
+
+function* fmapGenerator_(gen, f) {
+    for (let [t, x] of gen) {
+        yield [t, f(x)];
+    }
+}
+function fmapGenerator(gen, n) {
+    return now => fmapGenerator_(gen(now), n);
+}
+
+function* filterGenerator_(gen, pred) {
+    for (let x of gen) {
+        if (pred(x)) {
+            yield x;
+        }
+    }
+}
+function filterGenerator(gen, n) {
+    return now => filterGenerator_(gen(now), n);
+}
+
+function* groupGenerator_(gen, gen_2) {
+    var arr = [];
+    var v1a = gen.next();
+    var v = gen_2.next();
+    loop1:
+    while (true) {
+        if (v1a.done) {
+            break loop1
+        }
+        var [va1t, va1x] = v1a.value;
+        var v1b = gen.next();
+        var begin = 0;
+        if (!v1b.done) {
+            begin = v1b.value[0];
+        }
+
+        loop2:
+        while (true) {
+            if (v.done) {
+                break loop1;
+            }
+            var [vt, vx] = v.value;
+            v = gen_2.next();
+            // debugger
+            // console.log(va1t + " <= " + vt+ " : " + begin);
+            // console.log(v)
+            // debugger
+            if (vt > va1t) {
+                continue;
+            }
+            else if (vt > begin && vt <= va1t) {
+                arr.push(vx);
+            } else {
+                yield [va1t, [va1x, arr]];
+                arr = [];
+                break loop2;
+            }
+        }
+        v1a = v1b;
+    }
+}
+
+function groupGenerator(gen, gen_2) {
+    return now => groupGenerator_(gen(now), gen_2(now));
+}
+
+function* takeWhileGenerator_(gen, pred) {
+    for (let x of gen) {
+        var res = pred(x);
+        if (res) {
+            yield x;
+        } else {
+            break;
+        }
+    }
+}
+function takeWhileGenerator(gen, n) {
+
+    return now => takeWhileGenerator_(gen(now), n);
+}
+
+Object.defineProperty(Object.prototype, "take", {
+    value: function take(n) {
+        return takeGenerator(this, n)
+    }
+});
+
+Object.defineProperty(Object.prototype, "group", {
+    value: function group(n) {
+        return groupGenerator(this, n)
+    }
+});
+
+Object.defineProperty(Object.prototype, "pmap", {
+    value: function pmap(n) {
+        return mapGenerator(this, n)
+    }
+});
+
+Object.defineProperty(Object.prototype, "fmap", {
+    value: function fmap(n) {
+        return fmapGenerator(this, n)
+    }
+});
+
+Object.defineProperty(Object.prototype, "delay", {
+    value: function delay(n) {
+        return delayGenerator(this, n)
+    }
+});
+
+
+Object.defineProperty(Object.prototype, "filter", {
+    value: function filter(pred) {
+        return filterGenerator(this, pred)
+    }
+});
+
+Object.defineProperty(Object.prototype, "ffilter", {
+    value: function ffilter(pred) {
+        return filterGenerator(this, (([_, x]) => pred(x)))
+    }
+});
+
+Object.defineProperty(Object.prototype, "takeWhile", {
+    value: function takeWhile(pred) {
+        return takeWhileGenerator(this, pred)
+    }
+});
+
+Object.defineProperty(Object.prototype, "merge", {
+    value: function merge(other) {
+        return merge_two(this,other)
+    }
+});
+
+function TimeQueue(capacity) {
+    this._oldestIndex = 1;
+    this._newestIndex = 1;
+    this._capacity = capacity;
+    this._storage = {};
+}
+
+TimeQueue.prototype.size = function() {
+    return this._newestIndex - this._oldestIndex;
+};
+
+TimeQueue.prototype.enqueue = function(data) {
+    this._storage[this._newestIndex] = [new Date().getTime() - start_time, data];
+    this._newestIndex++;
+    if (this._capacity != -1 && this.size() > this._capacity) {
+        this.dequeue();
+    }
+};
+
+TimeQueue.prototype.dequeue = function() {
+    var oldestIndex = this._oldestIndex,
+        newestIndex = this._newestIndex,
+        deletedData;
+
+    if (oldestIndex !== newestIndex) {
+        deletedData = this._storage[oldestIndex];
+        delete this._storage[oldestIndex];
+        this._oldestIndex++;
+
+        return deletedData;
+    }
+};
+
+function reverse (array) {
+    var i = 0,
+        n = array.length,
+        middle = Math.floor(n / 2),
+        temp = null;
+
+    for (; i < middle; i += 1) {
+        temp = array[i];
+        array[i] = array[n - 1 - i];
+        array[n - 1 - i] = temp;
+    }
+}
+
+function* time_q_events(tq) {
+    for (var i = 0; i < tq.size(); i++) {
+        idx = tq._newestIndex - i;
+        var data;
+        data = tq._storage[idx - 1];
+        yield data;
+    }
+}
+
+
+TimeQueue.prototype.events = function() {
+    return ((now) => time_q_events(this));
+};
+
+function observe(cap, listener) {
+    var q = new TimeQueue(cap);
+    listener(function (evt) {
+        q.enqueue(evt);
+        run();
+    });
+    return q.events();
+}
+
+function update() {
+    // c = Object.keys(mouse_move_obs._storage).length
+    // console.log(c);
+}
+
+function lazy(f) {
+    return (input) => () => f(input);
+}
+
+function makeUL(array) {
+    // Create the list element:
+    var list = document.createElement('ul');
+
+    for(var i = 0; i < array.length; i++) {
+        // Create the list item:
+        var item = document.createElement('li');
+
+        // Set its contents:
+        item.appendChild(document.createTextNode(array[i]));
+
+        // Add it to the list:
+        list.appendChild(item);
+    }
+
+    // Finally, return the constructed list:
+    return list;
+}
+
+var mouse_move = observe(-1,(f) => $("body").mousemove(f));
+var mouse_up = observe(2,(f) => $("body").mouseup(f));
+var press_input = observe(-1,(f) => $("input").keypress(f));
+var itunes_tq = new TimeQueue(100);
+var get_search = itunes_tq.events();
+
+
+function did_you_mean(evt){
+    var q = $("input").val();
+    // console.log("calling")
+    $.get("https://itunes.apple.com/search?term=" + q, (d) => itunes_tq.enqueue(d));
+
+
+}
+
+function receive_did_you_mean(data){
+    var dym = $("#dym");
+    res = JSON.parse(data);
+    $("#dym").html(makeUL(res.results.map(r => r.artistName +": "+ r.trackName)));
+}
+
+function print_sad(d){
+    $("#sad").text(d);
+}
+function print_dym(d){
+    $("#dym").text(d);
+}
+
+function print_log(d) {
+    console.log(d)
+}
+
+var nothing = (now) => { return function*(){}(); };
+
+// var mouse_counter = every(100)
+//             .group(mouse_move)
+//             .fmap(([_, evts]) => evts.length)
+//             ;
+
+// mouse_up
+//         // .fmap(lazy(evt => { console.log(evt.pageX + ", "+ evt.pageY)}))
+//         .group(mouse_move)
+//         .fmap(([_, evts]) => evts.length)
+//         ;
+
+
+// var many_moves = mouse_counter
+//             .filter(([_, x]) => x > 10)
+
+var presses = every(300)
+            .group(press_input)
+
+var few_clicks = presses
+            .ffilter(([_, x]) => x.length == 1)
+            .fmap(_ => "few")
+
+var after_some = press_input
+            .delay(500)
+            .fmap( _ => "after")
+
+var both = nothing
+        .merge(few_clicks)
+        .merge(after_some)
+
+var perform_search = every(300)
+                .group(both)
+                .ffilter(([_, evts]) => evts.length > 0)
+                .fmap(([_, evts]) => evts)
+
+
+var all_events = nothing
+        // .merge(mouse_up.fmap(lazy(evt => print_sad(evt.pageX + ", "+ evt.pageY))))
+        // .merge(after_some.fmap(lazy(print_log)))
+        // .merge(few_clicks.fmap(lazy(print_log)))
+        .merge(both.fmap(lazy(evt => print_log("both: " + evt))))
+        // .merge(perform_search.fmap(lazy(print_log)))
+        // .merge(perform_search.fmap(lazy(did_you_mean)))
+        // // .merge(mouse_move)
+        // .merge(get_search.fmap(lazy(receive_did_you_mean)))
+        ;
+
+
+var start_time = new Date().getTime()
+var last = 0;
+var now =  0;
+
+function run() {
+    now = new Date().getTime() - start_time;
+    // console.log("last " + last);
+    // console.log("now " + now);
+    // queue_evts = Array.from().reverse();
+    var evts = all_events
+                .filter(([t, _]) => t <= now)
+                .takeWhile(([t,_]) => t > last)
+                // .filter(([_, a]) => isFunction(a));
+    evts = evts(now);
+    evts = Array.from(evts).reverse();
+    // console.log(evts);
+    // count = 0;
+    for (let [t, f] of evts) {
+        // console.log(t)
+        f()
+    }
+    last = now;
+}
+
+window.setInterval(run, 10);
+</script>
